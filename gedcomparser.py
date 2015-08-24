@@ -483,6 +483,15 @@ class Element:
                             last = c.value()
         return (first, last)
 
+    def indi(self):
+        """Return the individual ("P" value) of a person."""
+        indi = ""
+        if not self.individual():
+            return (indi)
+        if self.tag() == "INDI":
+            indi = self.pointer().replace("@","")
+        return (indi)
+
     def birth(self):
         """Return the birth tuple of a person as (date, place)."""
         date = ""

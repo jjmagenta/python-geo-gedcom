@@ -66,7 +66,7 @@ class MyFamily:
                             default = 'Google', dest='locator')
         parser.add_argument(
                             '-f', '--geocodeflag', required=False, help="If flag is false, actual geocoding is skipped.",
-                            default = 'True', dest='geocodeflag')
+                            default = 'False', dest='geocodeflag')
         parser.parse_args(namespace=self)
 
 
@@ -101,11 +101,12 @@ class MyFamily:
                 else:
                     family = ''
 
-                #Get the events and dates associate with the family section of the gedcom file
+                #Get the events and dates associated with the gedcom file line
                 for elem2 in elem.children():
                     indidate = ''
                     indievent = ''
                     indiyear = 0
+                    inditag = ""
                     for elem3 in elem2.children():
                         if elem3.date():
                             indidate = elem3.value()
@@ -123,8 +124,12 @@ class MyFamily:
                             longitude = position[1]
                             #Get the event code
                             event = str(elem3.parent()).split(' ')[1]
-                            indievent = codedict.lookupcode(event)
-                            indilist.append(tuple([longitude, latitude, elem.name()[0], elem.name()[1], family, indidate, indiyear, elem3.value(), indievent,longitude, latitude]))
+                            print event
+                            indievent = codedict.lookupcode(event).split(" ",1)[1]
+                            indisortorder = elem.indi().replace('P','').zfill(5)
+                            sortorder = int(codedict.lookupcode(event).split(" ")[0])
+                            indilist.append(tuple([longitude, latitude, elem.indi(), elem.name()[0], elem.name()[1], family, indidate, indiyear, elem3.value(), indievent,  longitude, latitude, indisortorder, sortorder]))
+
         self.indiplacelist = indilist
 
 
@@ -164,15 +169,17 @@ def writetofc(fcname, outputlist, headingslist, spatialref):
         dtt = desclist, typlist
         dts.append(dtt)
     inarray = numpy.array(outputlist, numpy.dtype(dts))
+    inarray.sort(order=['IndiSortOrder', 'Year', 'YearSortOrder'])
     #arcpy.da.NumPyArrayToTable(inarray, fcname)
-    arcpy.da.NumPyArrayToFeatureClass(inarray, fcname, ("Longitude", "Latitude"), spatialref)
+    arcpy.da.NumPyArrayToFeatureClass(inarray, fcname, ("Long", "Lat"), spatialref)
     return
 
 def headings():
     """Formats headings for Feature Class."""
     myheadings = []
-    myheadings.append("Longitude")
-    myheadings.append("Latitude")
+    myheadings.append("Long")
+    myheadings.append("Lat")
+    myheadings.append("Individual")
     myheadings.append("GivenNames")
     myheadings.append("FamilyName")
     myheadings.append("Family")
@@ -180,8 +187,10 @@ def headings():
     myheadings.append("Year")
     myheadings.append("Place")
     myheadings.append("Event")
-    myheadings.append("Long")
-    myheadings.append("Lat")
+    myheadings.append("Longitude")
+    myheadings.append("Latitude")
+    myheadings.append("IndiSortOrder")
+    myheadings.append("YearSortOrder")
     return myheadings
 
 def maxitemlength(arr):
