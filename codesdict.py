@@ -272,6 +272,18 @@ class FamilyCodes(object):
         """Return the fomatted codes and explanatory text"""
         return pprint.pformat(self.famcode)
 
+class PlaceCodes():
+    def __init__(self):
+        """Create dictionary"""
+        self.placecodes = {}
+
+    def lookupplace(self, place):
+        """Return an explanatory text for a code, or if the code doesn't exist, return 'Unknown' """
+        return self.placecodes.get(place, (0,0))
+
+    def addcode(self,place,coords):
+        self.placecodes[place] = coords
+
 class ALLDICT(object):
     """Class to hold all dictionaries in order to pass to functions."""
     def __init__(self, codes, people, families, invfamilies):

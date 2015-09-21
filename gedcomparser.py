@@ -304,6 +304,13 @@ class Element:
         """Check if this element is a place."""
         return self.tag() == "PLAC"
 
+    def source(self):
+        """Check if this element is a source."""
+        return self.tag() == "SOUR"
+
+    def title(self):
+        """Check if this element is a title."""
+        return self.tag() == "TITL"
     # criteria matching
 
     def criteria_match(self, criteria):

@@ -25,6 +25,7 @@ import re
 import codesdict
 import geocodeplace
 import gedcomparser
+import kmlgedcom
 
 class MyFamily:
     """Reader and formatter for the Gedcom parser."""
@@ -53,11 +54,21 @@ class MyFamily:
 ##                            '-g','--filename', required=False, help="Name of Gedcom file",
 ##                            default='C:\\Python27\\ArcGIS10.3\\GEDCOMS\\ancquest.ged', dest='filename')
         parser.add_argument(
-                            '-g','--filename', required=False, help="Name of Gedcom file",
+                            '-c','--filename', required=False, help="Name of Gedcom file",
                             default="C:\Python27\ArcGIS10.3\GEDCOMS\The Rogers Family Tree.ged", dest='filename')
         parser.add_argument(
-                            '-s', '--seedfilename', required=False, help="Pattern name of output Feature Class. Numerical suffixes will be added.",
-                            default='C:\\Python27\\ArcGIS10.3\\Lib\\Genealogy.gdb\\TestFeatureClass', dest = 'seedfilename')
+                            '-a', '--appflag', required=False, choices=['KML','Feature Class'], help="Flags whether Feature Class or KML is to be produced.",
+                            default = 'KML', dest='appflag')
+        group = parser.add_mutually_exclusive_group()
+
+        group.add_argument(
+                                '-f', '--FCseedfilename', required=False,choices=['C:\\Python27\\ArcGIS10.3\\Lib\\Genealogy.gdb\\TestFeatureClass',
+                                'D:\\KMLFile'], help="Pattern name of output data. Numerical suffixes will be added.",
+                                default='C:\\Python27\\ArcGIS10.3\\Lib\\Genealogy.gdb\\TestFeatureClass', dest = 'FCseedfilename')
+        group.add_argument(
+                                '-k', '--KMLseedfilename', required=False, help="Pattern name of output KML. Numerical suffixes will be added.",
+                                default='D:\\KMLFile.kml', dest = 'KMLseedfilename')
+
         parser.add_argument(
                             '-p', '--projectionfile', required=False, help="PRJ file to be used for Feature Class projection",
                             default='C:\\Python27\\ArcGIS10.3\\Lib\pyGeoGEDCOM\\wgs84.prj', dest='spatialref')
@@ -65,8 +76,9 @@ class MyFamily:
                             '-l', '--locatorname', required=False, help="Geocoding Locator",
                             default = 'Google', dest='locator')
         parser.add_argument(
-                            '-f', '--geocodeflag', required=False, help="If flag is false, actual geocoding is skipped.",
-                            default = 'False', dest='geocodeflag')
+                            '-g', '--geocodeflag', required=False, help="If flag is false, actual geocoding is skipped.",
+                            default = 'True', dest='geocodeflag')
+
         parser.parse_args(namespace=self)
 
 
@@ -80,16 +92,26 @@ class MyFamily:
 
     def readindividuals(self, locatorname, geocodeflag, info='names'):
         """Read and format the data for a Place for one Individual."""
+        count1 = 0
+        count2 = 0
         self.info = info
         indilist = []
         family = ''
         #Get the standard gedcom codes
         codedict = codesdict.KeyCodes()
         codedict.readcodes()
+
+        #Get the source codes and titles
+        sourcedict = self.createsoucedictionary()
+
+        #Set up a dictionary for places and coordinates to reduce the amount of geocoding required
+        placedict = codesdict.PlaceCodes()
+
         #Initialise the selected geocoding locator
         locator = initlocator(locatorname)
         for elem in self.g.element_list():
             if elem.individual():
+
                 #Get read all the families into a string
                 family = ''
                 for fam in elem.families():
@@ -107,6 +129,9 @@ class MyFamily:
                     indievent = ''
                     indiyear = 0
                     inditag = ""
+                    indiplace = ""
+                    indisource = ""
+                    ll = ()
                     for elem3 in elem2.children():
                         if elem3.date():
                             indidate = elem3.value()
@@ -117,40 +142,82 @@ class MyFamily:
                             else:
                                 indiyear = 0
                             #Get the place and geocode it
+
                         if elem3.place():
-                            #Get the longitude and Latitude
-                            position = locator.geocode(elem3.value(), geocodeflag)
-                            latitude = position[0]
-                            longitude = position[1]
+                            #Check the Places Dictionary to see if it has already been looked-up
+                            indiplace = elem3.value()
+                            coords = placedict.lookupplace(indiplace)
+                            if cmp(coords, [0,0]):
+                                count1 += 1
+                                #Place not found,  Coords 0,0 returned. Geocode for the longitude and Latitude
+                                position = locator.geocode(indiplace, geocodeflag)
+                                latitude = position[0]
+                                longitude = position[1]
+                                #Store in the dictionary
+                                placedict.addcode(indiplace, [latitude,longitude])
+
+                            else:
+                                #Place already in dictionary
+                                count2 += 1
+                                latitude,longitude = coords
+
                             #Get the event code
                             event = str(elem3.parent()).split(' ')[1]
-                            print event
                             indievent = codedict.lookupcode(event).split(" ",1)[1]
+
+                        if elem3.source():
+                            indisource = sourcedict.get(elem3.value(), "Unknown")
+
+                            ##famsortorder = elem.family().replace('F','').zfill(5)
                             indisortorder = elem.indi().replace('P','').zfill(5)
                             sortorder = int(codedict.lookupcode(event).split(" ")[0])
-                            indilist.append(tuple([longitude, latitude, elem.indi(), elem.name()[0], elem.name()[1], family, indidate, indiyear, elem3.value(), indievent,  longitude, latitude, indisortorder, sortorder]))
+                            if indiplace <> "":
+                                indilist.append(tuple([longitude, latitude, elem.indi(), elem.name()[0], elem.name()[1], family, indidate, indiyear, indiplace, indievent, indisource, longitude, latitude, indisortorder, sortorder]))
 
+        pass
+        print count1
+        print count2
         self.indiplacelist = indilist
 
+    def createsoucedictionary(self):
+                #Read souce codes and titles into dictionary
+        sourcedict ={}
+        for elem in self.g.element_list():
+            if elem.source() and elem.level() == 0:
+                x = elem.source()
+                if not sourcedict.has_key(elem.value):
+                    for elem2 in elem.children():
+                        if elem2.title():
+                            sourcedict[elem.pointer()] = elem2.value().decode('ascii', 'ignore')
+        return sourcedict
 
-def createfilename(seedname):
-    """Module that creates a unique sequential file name for the GIS Geodatabase data."""
-    foldername = os.path.dirname(seedname)
-    basefile = os.path.basename(seedname)
-    filename = os.path.splitext(basefile)[0]
+def createfilename(seedname, appflag):
+    """Module that creates a unique sequential file name for the Output file/KML."""
+    foldername = os.path.dirname(seedname)  #d:\\  ...gdb
+    basefile = os.path.basename(seedname)  # KMLFile.kml  -TestFeatureClass
+    extension = seedname.split(os.extsep, 1)[1]  #kml   breaks at the 10.3 dot
+    filename = os.path.splitext(basefile)[0]  #KMLFile  same as basefile
+
     inc = 0
-    resultname = os.path.join(foldername, filename + "_" + str(inc))
-    while arcpy.Exists(resultname):
-        inc = inc+1
+    if appflag == "Feature Class":
         resultname = os.path.join(foldername, filename + "_" + str(inc))
-    return resultname
+        while arcpy.Exists(resultname):
+            inc = inc+1
+            resultname = os.path.join(foldername, filename + "_" + str(inc))
+        return resultname
+    else:  #KML
+        resultname = os.path.join(foldername, filename + "_" + str(inc) + os.extsep + extension)
+        while os.path.exists(resultname):
+            inc = inc + 1
+            resultname = os.path.join(foldername, filename + "_" + str(inc) + os.extsep +extension)
+        return resultname
 
 def initlocator(locatorname):
     """Initialise the locator."""
     locator = geocodeplace.GEOCODEPLAC(locatorname)
     return locator
 
-def writetofc(fcname, outputlist, headingslist, spatialref):
+def writetofc(fcname, outputlist, headingslist, spatialref, appflag):
     """Writes data stored as tuples to an ArcGIS Table."""
     cols = len(outputlist[0])
     dts = list()
@@ -170,8 +237,11 @@ def writetofc(fcname, outputlist, headingslist, spatialref):
         dts.append(dtt)
     inarray = numpy.array(outputlist, numpy.dtype(dts))
     inarray.sort(order=['IndiSortOrder', 'Year', 'YearSortOrder'])
+    if appflag == 'Feature Class':
     #arcpy.da.NumPyArrayToTable(inarray, fcname)
-    arcpy.da.NumPyArrayToFeatureClass(inarray, fcname, ("Long", "Lat"), spatialref)
+        arcpy.da.NumPyArrayToFeatureClass(inarray, fcname, ("Long", "Lat"), spatialref)
+    else:
+        kmlgedcom.writekml(inarray, fcname)
     return
 
 def headings():
@@ -187,6 +257,7 @@ def headings():
     myheadings.append("Year")
     myheadings.append("Place")
     myheadings.append("Event")
+    myheadings.append("Source")
     myheadings.append("Longitude")
     myheadings.append("Latitude")
     myheadings.append("IndiSortOrder")
@@ -216,11 +287,16 @@ def main():
     individuals = MyFamily()
     individuals.readindividuals(individuals.locator, individuals.geocodeflag)
 
-    #Get a unique filename for the Feature Class
-    addressfc = createfilename(individuals.seedfilename)
+    #Get a unique filename for the output.
+    if individuals.appflag == "Feature Class":
+        seedfilename = individuals.FCseedfilename
+    else:
+        seedfilename = individuals.KMLseedfilename
+    address = createfilename(seedfilename, individuals.appflag)
 
     #Write the ArcGIS Feature Class
-    writetofc(addressfc, individuals.indiplacelist, headings(), individuals.spatialref)
+    writetofc(address, individuals.indiplacelist, headings(), individuals.spatialref, individuals.appflag)
+
 
 if __name__ == '__main__':
     main()
